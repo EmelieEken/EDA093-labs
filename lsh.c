@@ -127,6 +127,7 @@ void
 EvaluateCommando(Pgm *current_pgm, Command *cmd)
 {
     int nmb_args = 0;
+    printf("nmb_args: %d\n", nmb_args);
 
     while (*((current_pgm->pgmlist)+(nmb_args + 1)) != NULL) {
         nmb_args++;
@@ -145,9 +146,9 @@ EvaluateCommando(Pgm *current_pgm, Command *cmd)
         prog1[j] = two;
     }
     prog1[nmb_args+1] = '\0';
-    //printf("prog1: %s, prog1[1] %s\n", *prog1, prog1[1]);
+    printf("prog1: %s, prog1[1] %s\n", *prog1, prog1[1]);
 
-        Execute_if_exist(prog1, cmd);
+    Execute_if_exist(prog1, cmd);
 
 }
 
@@ -215,7 +216,8 @@ Execute_if_exist (char *const prog[], Command *cmd) { //TBI
 
 int Run_pipe2(Command *cmd)
 {
-
+  //pid_t main_pid = getpgid(0);
+  signal(SIGTTOU, SIG_IGN); //ignore SIGTTOU signals
     int nmb_pipes = 0;
     Pgm *current = cmd->pgm;
     //printf("Current: %s\n", *(current->next->next->pgmlist));
@@ -242,6 +244,7 @@ int Run_pipe2(Command *cmd)
             exit(1);
         }
         if (pid == 0) { //Doesn't work if arg is NULL, check for nmb of args
+          setpgid(0, 0); //pid, pgid
             Pgm *current_pgm = cmd->pgm;
             Redirections(cmd);
             EvaluateCommando(current_pgm, cmd);
@@ -250,7 +253,7 @@ int Run_pipe2(Command *cmd)
     }
     else
     { //Create pipes and execute processes
-
+      
         fds[0][0] = STDIN_FILENO; //first one should read from standard input
         fds[nmb_pipes][1] = STDOUT_FILENO; //Last one should write to standard output
 
@@ -273,6 +276,7 @@ int Run_pipe2(Command *cmd)
             }
             if(pid == 0)
             {
+              setpgid(0, 0); //pid, pgid
                 Pgm *current_pgm = cmd->pgm;
                 for (int j = nmb_pipes; (j-i)>0; j-- ) { //Make current_pgm the the command to be executed
                     current_pgm = current_pgm->next;
