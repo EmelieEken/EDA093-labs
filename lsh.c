@@ -38,11 +38,13 @@
 */
 
 void test(Pgm *);
+void sigintHandler(int);
+void sigchldHandler(int);
 int Run_pipe2(Command *);
 void EvaluateCommando(Pgm *, Command *);
 //bool Execute_if_exist(char *, char *);
 void Execute_if_exist(char *const prog[], Command *);
-char* Get_path(char *);
+//char* Get_path(char *);
 int Run_pipe(Pgm *);
 int Create_pipes_and_run(int, Pgm *);
 void Redirections(Command *);
@@ -52,6 +54,8 @@ void stripwhite(char *);
 
 /* When non-zero, this global means the user is done using this program. */
 int done = 0;
+
+//Make a list of foreground PIDs to kill when ctrl+c is pressed 
 
 /*
 * Name: main
@@ -63,6 +67,9 @@ int main(void)
 {
     Command cmd;
     int n;
+
+    signal(SIGINT, sigintHandler);
+    signal(SIGCHLD, sigchldHandler);
 
     while (!done) {
 
@@ -85,11 +92,7 @@ int main(void)
                 add_history(line);
                 n = parse(line, &cmd);
                 //PrintCommand(n, &cmd);
-
                 Run_pipe2(&cmd);
-
-
-
             }
         }
 
@@ -98,6 +101,19 @@ int main(void)
         }
     }
     return 0;
+}
+
+void sigchldHandler(int signo) {
+  //Print-outs for debugging
+  pid_t pid;
+  int status;
+  pid = wait(&status);
+  printf("PID of terminated child %d", pid);
+}
+
+void sigintHandler(int signo) {
+  //
+  printf("ctr+c pressed");
 }
 
 /*
@@ -128,7 +144,7 @@ EvaluateCommando(Pgm *current_pgm, Command *cmd)
         *(two+strlen(two)) = '\0';
         prog1[j] = two;
     }
-    prog1[nmb_args+1] = 0;
+    prog1[nmb_args+1] = '\0';
     //printf("prog1: %s, prog1[1] %s\n", *prog1, prog1[1]);
 
         Execute_if_exist(prog1, cmd);
@@ -199,11 +215,6 @@ Execute_if_exist (char *const prog[], Command *cmd) { //TBI
 
 int Run_pipe2(Command *cmd)
 {
-    // int des_p[2];
-    // if(pipe(des_p) == -1) {
-    //     perror("Pipe failed");
-    //     exit(1);
-    // }
 
     int nmb_pipes = 0;
     Pgm *current = cmd->pgm;
@@ -318,9 +329,13 @@ int Run_pipe2(Command *cmd)
         close(fds[nmb_pipes][0]); //close read from last pipe
     }
 
-    //Wait for all children
-    for (int i = 0; i<= nmb_pipes; i++) {
+    //Wait for all children if in foreground
+    printf("Background %d\n",(cmd->bakground));
+    if (!(cmd->bakground)) {
+      printf("Not in background");
+      for (int i = 0; i<= nmb_pipes; i++) {
         wait(0);
+      }
     }
 
     return 0;
