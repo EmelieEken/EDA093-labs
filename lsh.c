@@ -37,12 +37,11 @@
 */
 
 void test(Pgm *);
-int Run_pipe2(Pgm *);
+int Run_pipe(Pgm *);
 void EvaluateCommando(Pgm *);
-//bool Execute_if_exist(char *, char *);
 void Execute_if_exist(char *const prog[]);
 char* Get_path(char *);
-int Run_pipe(Pgm *);
+
 int Create_pipes_and_run(int, Pgm *);
 void PrintCommand(int, Command *);
 void PrintPgm(Pgm *);
@@ -50,8 +49,6 @@ void stripwhite(char *);
 
 /* When non-zero, this global means the user is done using this program. */
 int done = 0;
-
-char path[6] = "/bin/";
 
 /*
 * Name: main
@@ -63,6 +60,9 @@ int main(void)
 {
     Command cmd;
     int n;
+
+    signal(SIGINT, sigintHandler);
+    signal(SIGCHLD, childHandler);
 
     while (!done) {
 
@@ -86,10 +86,8 @@ int main(void)
                 n = parse(line, &cmd);
                 //PrintCommand(n, &cmd);
 
-                Run_pipe2(cmd.pgm);
+                Run_pipe(cmd.pgm);
                 
-                
-
             }
         }
         
@@ -133,6 +131,16 @@ EvaluateCommando(Pgm *current_pgm)
 
         Execute_if_exist(prog1);
 
+}
+
+void childHandler(int signo) {
+  //wait for the child sending this signal at its termination
+  wait();
+}
+
+void sigintHandler(int signo) {
+  //Close all processes except the main one and background processes
+  
 }
 
 void
@@ -184,13 +192,8 @@ char* Get_path(char *com) {
 
 
 
-int Run_pipe2(Pgm *first_pgm) 
+int Run_pipe(Pgm *first_pgm) 
 {
-    // int des_p[2];
-    // if(pipe(des_p) == -1) {
-    //     perror("Pipe failed");
-    //     exit(1);
-    // }
 
     int nmb_pipes = 0;
     Pgm *current = first_pgm;
