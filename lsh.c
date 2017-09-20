@@ -45,8 +45,8 @@ void EvaluateCommando(Pgm *, Command *);
 //bool Execute_if_exist(char *, char *);
 void Execute_if_exist(char *const prog[], Command *);
 //char* Get_path(char *);
-int Run_pipe(Pgm *);
-int Create_pipes_and_run(int, Pgm *);
+//int Run_pipe(Pgm *);
+//int Create_pipes_and_run(int, Pgm *);
 void Redirections(Command *);
 void PrintCommand(int, Command *);
 void PrintPgm(Pgm *);
@@ -56,6 +56,9 @@ void stripwhite(char *);
 int done = 0;
 
 //Make a list of foreground PIDs to kill when ctrl+c is pressed 
+
+//pid of main process
+pid_t main_pid;
 
 /*
 * Name: main
@@ -68,10 +71,17 @@ int main(void)
     Command cmd;
     int n;
 
-    signal(SIGINT, sigintHandler);
-    signal(SIGCHLD, sigchldHandler);
+    
+
+    main_pid = getpid();
+    printf("Main pid: %d\n", main_pid);
+    setpgid(main_pid, 0);
+    printf("Main_pgid: %d\n", getpgid(main_pid));
 
     while (!done) {
+
+        signal(SIGINT, sigintHandler);
+        signal(SIGCHLD, sigchldHandler);
 
         char *line;
         line = readline("> ");
@@ -104,11 +114,18 @@ int main(void)
 }
 
 void sigchldHandler(int signo) {
-  //Print-outs for debugging
-  pid_t pid;
-  int status;
-  pid = wait(&status);
-  printf("PID of terminated child %d", pid);
+    //Print-outs for debugging
+    pid_t pid;
+    int status;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) { //Wait for any child without blocking
+        printf("PID of terminated child %d\n", pid);
+    }
+    // if (pid == -1) {
+    //     printf("Errno: %d, %s", errno, strerror(errno));
+    // } else {
+    //     printf("PID of terminated child %d", pid);
+    // }
+  
 }
 
 void sigintHandler(int signo) {
@@ -116,18 +133,13 @@ void sigintHandler(int signo) {
   printf("ctr+c pressed");
 }
 
-/*
-* Name: PrintCommand
-*
-* Description: Prints a Command structure as returned by parse on stdout.
-*
-*/
+
 
 void
 EvaluateCommando(Pgm *current_pgm, Command *cmd)
 {
     int nmb_args = 0;
-    printf("nmb_args: %d\n", nmb_args);
+    //printf("nmb_args: %d\n", nmb_args);
 
     while (*((current_pgm->pgmlist)+(nmb_args + 1)) != NULL) {
         nmb_args++;
@@ -145,7 +157,7 @@ EvaluateCommando(Pgm *current_pgm, Command *cmd)
         *(two+strlen(two)) = '\0';
         prog1[j] = two;
     }
-    prog1[nmb_args+1] = '\0';
+    prog1[nmb_args+1] = 0;
     printf("prog1: %s, prog1[1] %s\n", *prog1, prog1[1]);
 
     Execute_if_exist(prog1, cmd);
@@ -203,21 +215,20 @@ Execute_if_exist (char *const prog[], Command *cmd) { //TBI
     // return true;
 }
 
-/*char* Get_path(char *com) {
-    size_t total_len = strlen(com) + strlen(path) + 1; //strlen doesn't count the \0
-    char search_path[total_len];
-    char *start = &search_path[0];
-    strncpy(start, path, total_len);
-    strncat(start, com, total_len);
-    return start;
-}*/
-
+//if (cmd->bakground == 1) {
+    // signal(SIGTTOU, SIG_IGN);
+    // if(-1 == tcsetpgrp(STDIN_FILENO, main_pid)) {
+    //     perror("Couldn't set terminal foreground process group");
+    //     return EXIT_FAILURE;
+    // }
+    // signal(SIGTTOU, SIG_DFL);
+//}    
 
 
 int Run_pipe2(Command *cmd)
 {
-  //pid_t main_pid = getpgid(0);
-  signal(SIGTTOU, SIG_IGN); //ignore SIGTTOU signals
+    int pid_chld; //pid of first child
+
     int nmb_pipes = 0;
     Pgm *current = cmd->pgm;
     //printf("Current: %s\n", *(current->next->next->pgmlist));
@@ -231,35 +242,36 @@ int Run_pipe2(Command *cmd)
 
     if (nmb_pipes == 0) {
 
-        //Check if exit typed
+        //Check if exit typed, TODO: cd command 
         char com_exit[5] = "exit";
         char *ce = &(com_exit[0]);
         if (strcmp(*(cmd->pgm->pgmlist), ce) == 0) {
-            exit(0); //Do we need to think about something else here?
+            exit(0); //Do we need to think about something else here, like killing background processes?
         }
         int pid = fork();
 
-        if (pid < 0) {
+        if (pid < 0) { 
             perror("Fork failed");
             exit(1);
         }
-        if (pid == 0) { //Doesn't work if arg is NULL, check for nmb of args
-          setpgid(0, 0); //pid, pgid
+
+        if (pid == 0) { //If child
+
             Pgm *current_pgm = cmd->pgm;
-            Redirections(cmd);
-            EvaluateCommando(current_pgm, cmd);
+            Redirections(cmd); //Change input and/or output source if specified
+            EvaluateCommando(current_pgm, cmd); //Execute command
+        } 
+        else { //If parent
+            wait(NULL); //Blocking wait for parent if process not set to background
         }
-        wait(NULL);
     }
-    else
-    { //Create pipes and execute processes
+    else { //Create pipes and execute processes
       
         fds[0][0] = STDIN_FILENO; //first one should read from standard input
         fds[nmb_pipes][1] = STDOUT_FILENO; //Last one should write to standard output
 
-        for (int i = 0; i<nmb_pipes; i++) {
+        for (int i = 0; i<nmb_pipes; i++) { //Create all the necessary pipes
             int fd[2];
-            //*(fds+i) = fd;
             if (pipe(fd) == -1) {
                 fprintf(stderr, "Pipe failed");
                 return -1;
@@ -268,25 +280,27 @@ int Run_pipe2(Command *cmd)
             fds[i+1][0] = fd[0]; //read from this pipe
         }
 
-        for (int i = 0; i <= nmb_pipes; i++) { //Fixa med nya pipes
+        // int pid;
+
+        for (int i = 0; i <= nmb_pipes; i++) { //Let main process fork a child for each command
             int pid = fork();
             if (pid == -1) {
                 perror("Fork failed");
                 exit(1);
             }
-            if(pid == 0)
-            {
-              setpgid(0, 0); //pid, pgid
+            
+            if(pid == 0) {
+                
                 Pgm *current_pgm = cmd->pgm;
                 for (int j = nmb_pipes; (j-i)>0; j-- ) { //Make current_pgm the the command to be executed
                     current_pgm = current_pgm->next;
                 }
 
-                char *one = *(current_pgm->pgmlist);
-                *(one+strlen(one)) = '\0';
-                char *two = *((current_pgm->pgmlist)+1);
-                *(two+strlen(two)) = '\0';
-                char *const prog1[3] = {one, two, 0};
+                // char *one = *(current_pgm->pgmlist);
+                // *(one+strlen(one)) = '\0';
+                // char *two = *((current_pgm->pgmlist)+1);
+                // *(two+strlen(two)) = '\0';
+                // char *const prog1[3] = {one, two, 0};
                 //printf("i = %d, fds = [%d %d], one = %s, two = %s\n", i, fds[i][0], fds[i][1], one, two);
                 Redirections(cmd);
                 //Fixa med i
@@ -336,14 +350,19 @@ int Run_pipe2(Command *cmd)
     //Wait for all children if in foreground
     printf("Background %d\n",(cmd->bakground));
     if (!(cmd->bakground)) {
-      printf("Not in background");
-      for (int i = 0; i<= nmb_pipes; i++) {
-        wait(0);
-      }
+        printf("Not in background\n");
+        for (int i = 0; i<= nmb_pipes; i++) {
+            wait(NULL);
+        }
     }
 
     return 0;
 }
+
+
+
+
+
 
 //Just to check if we're extracting the right things, only for debugging
 void test(Pgm *pgm) {
@@ -360,6 +379,13 @@ void test(Pgm *pgm) {
     printf("print %s, %s\n", (prog1[0]), (prog1[1]));
 }
 
+/*
+* Name: PrintCommand
+*
+* Description: Prints a Command structure as returned by parse on stdout.
+*
+*/
+
 void
 PrintCommand (int n, Command *cmd)
 {
@@ -369,6 +395,17 @@ PrintCommand (int n, Command *cmd)
     printf("   bg    : %s\n", cmd->bakground ? "yes" : "no"); //Ending command with &
     PrintPgm(cmd->pgm); //Commands entered
 } //?: operator = condition true? -> evaluate 1st, otherwise evanuate 2nd
+
+
+/*char* Get_path(char *com) {
+    size_t total_len = strlen(com) + strlen(path) + 1; //strlen doesn't count the \0
+    char search_path[total_len];
+    char *start = &search_path[0];
+    strncpy(start, path, total_len);
+    strncat(start, com, total_len);
+    return start;
+}*/
+
 
 /*
 * Name: PrintPgm
