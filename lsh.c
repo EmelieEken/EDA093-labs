@@ -25,6 +25,7 @@
 #include "parse.h"
 #include <stdbool.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <string.h>
 #include <ctype.h>
@@ -66,11 +67,15 @@ pid_t main_pid;
 * Description: Gets the ball rolling...
 *
 */
+
+int foreground_pid = -1;
+
 int main(void)
 {
     Command cmd;
     int n;
 
+    
 
     main_pid = getpid();
     printf("Main pid: %d\n", main_pid);
@@ -131,14 +136,17 @@ void sigchldHandler(int signo) {
 void sigintHandler(int signo) {
   //
     //printf("this process pid: %d", getpid());
-    if (getpid() != main_pid) {
-        exit(0);
+    // if (getpid() == main_pid) {
+    //     exit(0);
+    // }
+    if (foreground_pid > 0 && kill(foreground_pid, SIGKILL) < 0) {
+        printf("No process killed");
     }
+    foreground_pid = -1;
     //printf("ctr+c pressed");
     //kill foreground processes 
     return;
 }
-
 
 
 void
@@ -258,8 +266,19 @@ int Run_pipe2(Command *cmd)
         //Check if exit typed, TODO: cd command 
         char com_exit[5] = "exit";
         char *ce = &(com_exit[0]);
+        char com_cd[5] = "cd";
+        char *cc = &(com_cd[0]);
         if (strcmp(*(cmd->pgm->pgmlist), ce) == 0) {
             exit(0); //Do we need to think about something else here, like killing background processes?
+        } else if (strcmp(*(cmd->pgm->pgmlist), cc) == 0) {
+            //printf("Changing dir\n");
+            char *newPathRelative = *((current->pgmlist)+ 1); //get 
+
+            //printf("new path relative: %s\n", newPathRelative);
+            if (chdir(newPathRelative) < 0) {
+                printf("Could not change directory to %s", newPathRelative);
+            }
+            return 0;
         }
         int pid = fork();
 
@@ -278,6 +297,8 @@ int Run_pipe2(Command *cmd)
             if (!(cmd->bakground == 1)) { //if not in background
                 printf("Parent waits\n");
                 wait(NULL); //Blocking wait for parent if process not set to background, or enough to put child in foreground?
+            } else {
+                foreground_pid = pid;
             }
         }
     }
