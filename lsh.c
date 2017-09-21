@@ -130,12 +130,13 @@ void sigchldHandler(int signo) {
 
 void sigintHandler(int signo) {
   //
-  if (getpid() != main_pid) {
-      exit(0);
-  }
-  printf("ctr+c pressed");
-  //kill foreground processes 
-  return;
+    //printf("this process pid: %d", getpid());
+    if (getpid() != main_pid) {
+        exit(0);
+    }
+    //printf("ctr+c pressed");
+    //kill foreground processes 
+    return;
 }
 
 
