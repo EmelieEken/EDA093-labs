@@ -71,17 +71,16 @@ int main(void)
     Command cmd;
     int n;
 
-    
 
     main_pid = getpid();
     printf("Main pid: %d\n", main_pid);
     setpgid(main_pid, 0);
     printf("Main_pgid: %d\n", getpgid(main_pid));
+    signal(SIGINT, sigintHandler);
+
 
     while (!done) {
-
-        signal(SIGINT, sigintHandler);
-        signal(SIGCHLD, sigchldHandler);
+        //signal(SIGCHLD, sigchldHandler);
 
         char *line;
         line = readline("> ");
@@ -125,12 +124,18 @@ void sigchldHandler(int signo) {
     // } else {
     //     printf("PID of terminated child %d", pid);
     // }
+    return;
   
 }
 
 void sigintHandler(int signo) {
   //
+  if (getpid() != main_pid) {
+      exit(0);
+  }
   printf("ctr+c pressed");
+  //kill foreground processes 
+  return;
 }
 
 
@@ -144,7 +149,7 @@ EvaluateCommando(Pgm *current_pgm, Command *cmd)
     while (*((current_pgm->pgmlist)+(nmb_args + 1)) != NULL) {
         nmb_args++;
     }
-    printf("nmb_args: %d\n", nmb_args);
+    //printf("nmb_args: %d\n", nmb_args);
 
     char *prog1[nmb_args+2];
     memset( prog1, 0, (nmb_args+2)*sizeof(char*) );
@@ -158,7 +163,7 @@ EvaluateCommando(Pgm *current_pgm, Command *cmd)
         prog1[j] = two;
     }
     prog1[nmb_args+1] = 0;
-    printf("prog1: %s, prog1[1] %s\n", *prog1, prog1[1]);
+    //printf("prog1: %s, prog1[1] %s\n", *prog1, prog1[1]);
 
     Execute_if_exist(prog1, cmd);
 
@@ -224,7 +229,6 @@ Execute_if_exist (char *const prog[], Command *cmd) { //TBI
     // signal(SIGTTOU, SIG_DFL);
 //}    
 
-
 int Run_pipe2(Command *cmd)
 {
     int pid_chld; //pid of first child
@@ -239,6 +243,14 @@ int Run_pipe2(Command *cmd)
     //printf("Nmb pipes: %d\n", nmb_pipes);
     int fds[nmb_pipes+1][2]; //fd for read and write for all future processes, starting from the first process
     memset( fds, 0, (nmb_pipes+1)*2*sizeof(int) );
+
+    if (cmd->bakground == 1) { //if in background
+        signal(SIGCHLD, sigchldHandler);
+    } else {
+        printf("Sighandler set to not in background\n");
+        signal(SIGCHLD, SIG_DFL); //Set to default and make parent wait instead
+        
+    }
 
     if (nmb_pipes == 0) {
 
@@ -262,7 +274,10 @@ int Run_pipe2(Command *cmd)
             EvaluateCommando(current_pgm, cmd); //Execute command
         } 
         else { //If parent
-            wait(NULL); //Blocking wait for parent if process not set to background
+            if (!(cmd->bakground == 1)) { //if not in background
+                printf("Parent waits\n");
+                wait(NULL); //Blocking wait for parent if process not set to background, or enough to put child in foreground?
+            }
         }
     }
     else { //Create pipes and execute processes
@@ -296,12 +311,6 @@ int Run_pipe2(Command *cmd)
                     current_pgm = current_pgm->next;
                 }
 
-                // char *one = *(current_pgm->pgmlist);
-                // *(one+strlen(one)) = '\0';
-                // char *two = *((current_pgm->pgmlist)+1);
-                // *(two+strlen(two)) = '\0';
-                // char *const prog1[3] = {one, two, 0};
-                //printf("i = %d, fds = [%d %d], one = %s, two = %s\n", i, fds[i][0], fds[i][1], one, two);
                 Redirections(cmd);
                 //Fixa med i
                 if (fds[i][1] != STDOUT_FILENO ) {
@@ -348,10 +357,11 @@ int Run_pipe2(Command *cmd)
     }
 
     //Wait for all children if in foreground
+    //Or is it enough to put children in foreground and let them be handled by signal handler?
     printf("Background %d\n",(cmd->bakground));
-    if (!(cmd->bakground)) {
+    if (!(cmd->bakground)) { //If not in background
         printf("Not in background\n");
-        for (int i = 0; i<= nmb_pipes; i++) {
+        for (int i = 0; i<= nmb_pipes; i++) { //Wait for all children
             wait(NULL);
         }
     }
