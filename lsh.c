@@ -79,8 +79,6 @@ int main(void)
     Command cmd;
     int n;
 
-    
-
     main_pid = getpid();
     //printf("Main pid: %d\n", main_pid);
     setpgid(main_pid, 0);
@@ -139,6 +137,11 @@ void sigchldHandler(int signo) {
 
 void sigintHandler(int signo) {
   //
+    //Eros solution
+    // if (getppid() == main_pid) {
+    //     exit(0);
+    // }
+
     //printf("this process pid: %d", getpid());
     // if (getpid() == main_pid) {
     //     exit(0);
