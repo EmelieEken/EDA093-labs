@@ -41,11 +41,13 @@
 void test(Pgm *);
 void sigintHandler(int);
 void sigchldHandler(int);
+void addToPids(int);
+void clearPids();
 int Run_pipe2(Command *);
 void EvaluateCommando(Pgm *, Command *);
 //bool Execute_if_exist(char *, char *);
 void Execute_if_exist(char *const prog[], Command *);
-//char* Get_path(char *);
+char* Get_path(char *);
 //int Run_pipe(Pgm *);
 //int Create_pipes_and_run(int, Pgm *);
 void Redirections(Command *);
@@ -69,6 +71,8 @@ pid_t main_pid;
 */
 
 int foreground_pid = -1;
+const int maxPids = 32;
+int foreground_pids[maxPids] = {0}; //32 max processes 
 
 int main(void)
 {
@@ -78,9 +82,9 @@ int main(void)
     
 
     main_pid = getpid();
-    printf("Main pid: %d\n", main_pid);
+    //printf("Main pid: %d\n", main_pid);
     setpgid(main_pid, 0);
-    printf("Main_pgid: %d\n", getpgid(main_pid));
+    //printf("Main_pgid: %d\n", getpgid(main_pid));
     signal(SIGINT, sigintHandler);
 
 
@@ -139,13 +143,45 @@ void sigintHandler(int signo) {
     // if (getpid() == main_pid) {
     //     exit(0);
     // }
-    if (foreground_pid > 0 && kill(foreground_pid, SIGKILL) < 0) {
-        printf("No process killed");
+    int i = 0;
+    while (foreground_pids[i] > 0) {
+        if (kill(foreground_pids[i], SIGKILL) < 0) {
+            //printf("Couldn't kill process: %d\n", foreground_pids[i]);
+        } else {
+            //printf("Process killed %d\n", foreground_pids[i]);
+        }
+        foreground_pids[i] = 0;
+
+        i++;
     }
-    foreground_pid = -1;
+
+    // if (foreground_pid > 0 && kill(foreground_pid, SIGKILL) < 0) {
+    //     printf("No process killed");
+    // }
+    // foreground_pid = -1;
+
+
     //printf("ctr+c pressed");
     //kill foreground processes 
     return;
+}
+
+//To save pids of foregroundprocesses
+void addToPids(int pid) {
+    if (pid == 0) {
+        printf("Illegal pid in addToPids\n");
+    }
+    for (int i = 0; i<maxPids; i++) {
+        if(foreground_pids[i] == 0) {
+            foreground_pids[i] = pid;
+        }
+    }
+}
+//Clear pidlist after execution
+void clearPids() {
+    for (int i = 0; i<maxPids; i++) {
+        foreground_pids[i] = 0;
+    }
 }
 
 
@@ -165,6 +201,10 @@ EvaluateCommando(Pgm *current_pgm, Command *cmd)
     char *one = *(current_pgm->pgmlist);
     *(one+strlen(one)) = '\0';
     prog1[0] = one;
+    // char *com_path = Get_path(one);
+    // printf("Path: %s\n", com_path);
+    // printf("Access: %d\n", access(com_path, F_OK));
+
     //loop to add the args
     for (int j = 1; j<=nmb_args; j++) {
         char *two = *((current_pgm->pgmlist)+j);
@@ -173,8 +213,10 @@ EvaluateCommando(Pgm *current_pgm, Command *cmd)
     }
     prog1[nmb_args+1] = 0;
     //printf("prog1: %s, prog1[1] %s\n", *prog1, prog1[1]);
-
-    Execute_if_exist(prog1, cmd);
+    execvp((prog1[0]), prog1);
+        perror("execvp failed");
+        exit(1);
+    //Execute_if_exist(prog1, cmd);
 
 }
 
@@ -191,8 +233,9 @@ void Redirections (Command *currentCmd) {
   }
 }
 
+//Not used
 void
-Execute_if_exist (char *const prog[], Command *cmd) { //TBI
+Execute_if_exist (char *const prog[], Command *cmd) {
     //printf("prog[0] = %s\n", Get_path(prog[0]));
     //if (access(Get_path(prog[0]), F_OK)+1) {
         execvp((prog[0]), prog);
@@ -227,16 +270,16 @@ Execute_if_exist (char *const prog[], Command *cmd) { //TBI
 
     // //printf("execlp: %d\n",ret);
     // return true;
-}
 
-//if (cmd->bakground == 1) {
+    //if (cmd->bakground == 1) {
     // signal(SIGTTOU, SIG_IGN);
     // if(-1 == tcsetpgrp(STDIN_FILENO, main_pid)) {
     //     perror("Couldn't set terminal foreground process group");
     //     return EXIT_FAILURE;
     // }
     // signal(SIGTTOU, SIG_DFL);
-//}    
+//} 
+} 
 
 int Run_pipe2(Command *cmd)
 {
@@ -244,8 +287,46 @@ int Run_pipe2(Command *cmd)
 
     int nmb_pipes = 0;
     Pgm *current = cmd->pgm;
-    //printf("Current: %s\n", *(current->next->next->pgmlist));
+
+    //Check if special commands exit or cd
+    char com_exit[5] = "exit";
+    char *ce = &(com_exit[0]);
+    if (strcmp(*(cmd->pgm->pgmlist), ce) == 0) {
+        exit(0); //Do we need to think about something else here, like killing background processes?
+    }
+    //Check if cd command 
+    char com_cd[5] = "cd";
+    char *cc = &(com_cd[0]);
+    if (strcmp(*(cmd->pgm->pgmlist), cc) == 0) {
+        //printf("Changing dir\n");
+        char *newPathRelative = *((current->pgmlist)+ 1); //get 
+
+        //printf("new path relative: %s\n", newPathRelative);
+        if (chdir(newPathRelative) < 0) {
+            printf("Could not change directory to %s", newPathRelative);
+        }
+        return 0;
+    }
+
+    //Check if user typed in commands that can be found in the /bin folder
+    // char *one = *(current->pgmlist);
+    // *(one+strlen(one)) = '\0';
+    // printf("One path: %s\n", Get_path(one));
+    // printf("Access: %d\n", access(Get_path(one), F_OK)+1);
+    // if (!(access(Get_path(one), F_OK)+1)) {
+    //     printf("Command %s isn't recognised\n", one);
+    //     return -1;
+    // }
+
+    //Check how many pipes necessary and if legal commands, if not return
     while (current->next != NULL){
+        // char *one = *(current->pgmlist);
+        // *(one+strlen(one)) = '\0';
+        // printf("One: %s", one);
+        // if (access(Get_path(one), F_OK)+1) {
+        //     printf("Command '%s' isn't recognised\n", one);
+        //     return -1;
+        // }
         nmb_pipes++;
         current = current->next;
     }
@@ -256,30 +337,13 @@ int Run_pipe2(Command *cmd)
     if (cmd->bakground == 1) { //if in background
         signal(SIGCHLD, sigchldHandler);
     } else {
-        printf("Sighandler set to not in background\n");
+        //printf("Sighandler set to not in background\n");
         signal(SIGCHLD, SIG_DFL); //Set to default and make parent wait instead
         
     }
 
     if (nmb_pipes == 0) {
 
-        //Check if exit typed, TODO: cd command 
-        char com_exit[5] = "exit";
-        char *ce = &(com_exit[0]);
-        char com_cd[5] = "cd";
-        char *cc = &(com_cd[0]);
-        if (strcmp(*(cmd->pgm->pgmlist), ce) == 0) {
-            exit(0); //Do we need to think about something else here, like killing background processes?
-        } else if (strcmp(*(cmd->pgm->pgmlist), cc) == 0) {
-            //printf("Changing dir\n");
-            char *newPathRelative = *((current->pgmlist)+ 1); //get 
-
-            //printf("new path relative: %s\n", newPathRelative);
-            if (chdir(newPathRelative) < 0) {
-                printf("Could not change directory to %s", newPathRelative);
-            }
-            return 0;
-        }
         int pid = fork();
 
         if (pid < 0) { 
@@ -295,11 +359,12 @@ int Run_pipe2(Command *cmd)
         } 
         else { //If parent
             if (!(cmd->bakground == 1)) { //if not in background
-                printf("Parent waits\n");
+                //printf("pid: %d\n", pid);
+                addToPids(pid);
+                //printf("Parent waits\n");
                 wait(NULL); //Blocking wait for parent if process not set to background, or enough to put child in foreground?
-            } else {
-                foreground_pid = pid;
-            }
+                clearPids();
+            } 
         }
     }
     else { //Create pipes and execute processes
@@ -316,8 +381,6 @@ int Run_pipe2(Command *cmd)
             fds[i][1] = fd[1]; //write to this pipe
             fds[i+1][0] = fd[0]; //read from this pipe
         }
-
-        // int pid;
 
         for (int i = 0; i <= nmb_pipes; i++) { //Let main process fork a child for each command
             int pid = fork();
@@ -364,10 +427,13 @@ int Run_pipe2(Command *cmd)
                     }
                 }
                 EvaluateCommando(current_pgm, cmd);
+            } else { //if parent
+                //printf("pid: %d\n", pid);
+                addToPids(pid);
             }
         }
     }
-
+    //Close parents pipes
     if (nmb_pipes>0) {
 
         for (int m = 1; m<nmb_pipes; m++) {
@@ -379,21 +445,17 @@ int Run_pipe2(Command *cmd)
     }
 
     //Wait for all children if in foreground
-    //Or is it enough to put children in foreground and let them be handled by signal handler?
-    printf("Background %d\n",(cmd->bakground));
+    //printf("Background %d\n",(cmd->bakground));
     if (!(cmd->bakground)) { //If not in background
-        printf("Not in background\n");
+        //printf("Not in background\n");
         for (int i = 0; i<= nmb_pipes; i++) { //Wait for all children
             wait(NULL);
+            clearPids();
         }
     }
 
     return 0;
 }
-
-
-
-
 
 
 //Just to check if we're extracting the right things, only for debugging
@@ -429,14 +491,15 @@ PrintCommand (int n, Command *cmd)
 } //?: operator = condition true? -> evaluate 1st, otherwise evanuate 2nd
 
 
-/*char* Get_path(char *com) {
+char* Get_path(char *com) {
+    char path[6] = "/bin/";
     size_t total_len = strlen(com) + strlen(path) + 1; //strlen doesn't count the \0
     char search_path[total_len];
     char *start = &search_path[0];
     strncpy(start, path, total_len);
     strncat(start, com, total_len);
     return start;
-}*/
+}
 
 
 /*
